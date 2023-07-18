@@ -25,7 +25,14 @@
 # define restrict __restrict
 #endif
 
-#if defined(_WIN32)
+#define FILE_IO_USER_DEF
+
+#if defined(FILE_IO_USER_DEF)
+// # define _POSIX_C_SOURCE 1
+// # include <fcntl.h>
+// # include <sys/stat.h>
+// # include <unistd.h>
+#elif defined(_WIN32)
 # define WIN32_LEAN_AND_MEAN 1
 # include <windows.h>
 #else
@@ -113,7 +120,8 @@ struct SFT_Font
 {
 	const uint8_t *memory;
 	uint_fast32_t  size;
-#if defined(_WIN32)
+#if defined(FILE_IO_USER_DEF)
+#elif defined(_WIN32)
 	HANDLE         mapping;
 #endif
 	int            source;
@@ -214,15 +222,19 @@ sft_loadmem(const void *mem, size_t size)
 SFT_Font *
 sft_loadfile(char const *filename)
 {
+	printf("sft_loadfile\n");
 	SFT_Font *font;
 	if (!(font = calloc(1, sizeof *font))) {
+		printf("calloc fail\n");
 		return NULL;
 	}
 	if (map_file(font, filename) < 0) {
+		printf("map_file fail\n");
 		free(font);
 		return NULL;
 	}
 	if (init_font(font) < 0) {
+		printf("init_font fail\n");
 		sft_freefont(font);
 		return NULL;
 	}
@@ -276,6 +288,7 @@ sft_gmetrics(const SFT *sft, SFT_Glyph glyph, SFT_GMetrics *metrics)
 		return -1;
 	metrics->advanceWidth    = adv * xScale;
 	metrics->leftSideBearing = lsb * xScale + sft->xOffset;
+    printf("sft->xScale:%f, xScale:%f, adv:%d, lsb:%d\n", sft->xScale, xScale, adv, lsb);
 
 	if (outline_offset(sft->font, glyph, &outline) < 0)
 		return -1;
@@ -286,75 +299,77 @@ sft_gmetrics(const SFT *sft, SFT_Glyph glyph, SFT_GMetrics *metrics)
 	metrics->minWidth  = bbox[2] - bbox[0] + 1;
 	metrics->minHeight = bbox[3] - bbox[1] + 1;
 	metrics->yOffset   = sft->flags & SFT_DOWNWARD_Y ? -bbox[3] : bbox[1];
+	// printf("bbox: %d, %d, %d, %d\n", bbox[0], bbox[1], bbox[2], bbox[3]);
+    // printf("metrics: %f, %f, %d, %d, %d\n", metrics->advanceWidth, metrics->leftSideBearing, metrics->minWidth, metrics->minHeight, metrics->yOffset);
 
 	return 0;
 }
 
-int
-sft_kerning(const SFT *sft, SFT_Glyph leftGlyph, SFT_Glyph rightGlyph,
-            SFT_Kerning *kerning)
-{
-	void *match;
-	uint_fast32_t offset;
-	unsigned int numTables, numPairs, length, format, flags;
-	int value;
-	uint8_t key[4];
+// int
+// sft_kerning(const SFT *sft, SFT_Glyph leftGlyph, SFT_Glyph rightGlyph,
+//             SFT_Kerning *kerning)
+// {
+// 	void *match;
+// 	uint_fast32_t offset;
+// 	unsigned int numTables, numPairs, length, format, flags;
+// 	int value;
+// 	uint8_t key[4];
 
-	memset(kerning, 0, sizeof *kerning);
+// 	memset(kerning, 0, sizeof *kerning);
 
-	if (gettable(sft->font, "kern", &offset) < 0)
-		return 0;
+// 	if (gettable(sft->font, "kern", &offset) < 0)
+// 		return 0;
 
-	/* Read kern table header. */
-	if (!is_safe_offset(sft->font, offset, 4))
-		return -1;
-	if (getu16(sft->font, offset) != 0)
-		return 0;
-	numTables = getu16(sft->font, offset + 2);
-	offset += 4;
+// 	/* Read kern table header. */
+// 	if (!is_safe_offset(sft->font, offset, 4))
+// 		return -1;
+// 	if (getu16(sft->font, offset) != 0)
+// 		return 0;
+// 	numTables = getu16(sft->font, offset + 2);
+// 	offset += 4;
 
-	while (numTables > 0) {
-		/* Read subtable header. */
-		if (!is_safe_offset(sft->font, offset, 6))
-			return -1;
-		length = getu16(sft->font, offset + 2);
-		format = getu8 (sft->font, offset + 4);
-		flags  = getu8 (sft->font, offset + 5);
-		offset += 6;
+// 	while (numTables > 0) {
+// 		/* Read subtable header. */
+// 		if (!is_safe_offset(sft->font, offset, 6))
+// 			return -1;
+// 		length = getu16(sft->font, offset + 2);
+// 		format = getu8 (sft->font, offset + 4);
+// 		flags  = getu8 (sft->font, offset + 5);
+// 		offset += 6;
 
-		if (format == 0 && (flags & HORIZONTAL_KERNING) && !(flags & MINIMUM_KERNING)) {
-			/* Read format 0 header. */
-			if (!is_safe_offset(sft->font, offset, 8))
-				return -1;
-			numPairs = getu16(sft->font, offset);
-			offset += 8;
-			/* Look up character code pair via binary search. */
-			key[0] = (leftGlyph  >> 8) & 0xFF;
-			key[1] =  leftGlyph  & 0xFF;
-			key[2] = (rightGlyph >> 8) & 0xFF;
-			key[3] =  rightGlyph & 0xFF;
-			if ((match = bsearch(key, sft->font->memory + offset,
-				numPairs, 6, cmpu32)) != NULL) {
+// 		if (format == 0 && (flags & HORIZONTAL_KERNING) && !(flags & MINIMUM_KERNING)) {
+// 			/* Read format 0 header. */
+// 			if (!is_safe_offset(sft->font, offset, 8))
+// 				return -1;
+// 			numPairs = getu16(sft->font, offset);
+// 			offset += 8;
+// 			/* Look up character code pair via binary search. */
+// 			key[0] = (leftGlyph  >> 8) & 0xFF;
+// 			key[1] =  leftGlyph  & 0xFF;
+// 			key[2] = (rightGlyph >> 8) & 0xFF;
+// 			key[3] =  rightGlyph & 0xFF;
+// 			if ((match = bsearch(key, sft->font->memory + offset,
+// 				numPairs, 6, cmpu32)) != NULL) {
 				
-				value = geti16(sft->font, (uint_fast32_t) ((uint8_t *) match - sft->font->memory + 4));
-				if (flags & CROSS_STREAM_KERNING) {
-					kerning->yShift += value;
-				} else {
-					kerning->xShift += value;
-				}
-			}
+// 				value = geti16(sft->font, (uint_fast32_t) ((uint8_t *) match - sft->font->memory + 4));
+// 				if (flags & CROSS_STREAM_KERNING) {
+// 					kerning->yShift += value;
+// 				} else {
+// 					kerning->xShift += value;
+// 				}
+// 			}
 
-		}
+// 		}
 
-		offset += length;
-		--numTables;
-	}
+// 		offset += length;
+// 		--numTables;
+// 	}
 
-	kerning->xShift = kerning->xShift / sft->font->unitsPerEm * sft->xScale;
-	kerning->yShift = kerning->yShift / sft->font->unitsPerEm * sft->yScale;
+// 	kerning->xShift = kerning->xShift / sft->font->unitsPerEm * sft->xScale;
+// 	kerning->yShift = kerning->yShift / sft->font->unitsPerEm * sft->yScale;
 
-	return 0;
-}
+// 	return 0;
+// }
 
 int
 sft_render(const SFT *sft, SFT_Glyph glyph, SFT_Image image)
@@ -384,6 +399,8 @@ sft_render(const SFT *sft, SFT_Glyph glyph, SFT_Image image)
 		transform[3] = +sft->yScale / sft->font->unitsPerEm;
 		transform[5] = sft->yOffset - bbox[1];
 	}
+    // printf("transform: %f, %d, %f, %d, %d, %d\n", sft->xScale, sft->font->unitsPerEm, sft->xOffset, bbox[0], bbox[1], bbox[3]);
+    // printf("transform: %f, %f, %f, %f, %f, %f\n", sft->yScale, sft->yOffset, transform[2], transform[3], transform[4], transform[5]);
 	
 	memset(&outl, 0, sizeof outl);
 	if (init_outline(&outl) < 0)
@@ -412,6 +429,7 @@ failure:
 static void *
 reallocarray(void *optr, size_t nmemb, size_t size)
 {
+	// printf("reallocarray\n");
 	if ((nmemb >= MUL_NO_OVERFLOW || size >= MUL_NO_OVERFLOW) &&
 	    nmemb > 0 && SIZE_MAX / nmemb < size) {
 		errno = ENOMEM;
@@ -435,7 +453,53 @@ fast_ceil(double x)
 	return i + (i < x);
 }
 
-#if defined(_WIN32)
+#if defined(FILE_IO_USER_DEF)
+
+static int
+map_file(SFT_Font *font, const char *filename)
+{
+	FILE *fd;
+	font->memory = NULL;
+	font->size   = 0;
+	font->source = SrcMapping;
+	printf("filename:%s\n", filename);
+	if ((fd = fopen(filename, "rb")) < 0) {
+		return -1;
+	}
+	/* FIXME do some basic validation on info.st_size maybe - it is signed for example, so it *could* be negative .. */
+    fseek(fd, 0, SEEK_END);
+    font->size = ftell(fd);
+	printf("ttf size:%d\n", font->size);
+    if (font->size <= 0) {
+        fclose(fd);
+        printf("file size is null\n");
+        return 0;
+    }
+    fseek(fd, 0, SEEK_SET);
+
+    // font->size = 1325260;
+    font->memory = malloc(font->size);
+    if (!font->memory) {
+        fclose(fd);
+        printf("malloc error\n");
+        return 0;
+    }
+
+    font->size = fread((void*)font->memory, 1, font->size, fd);
+	printf("ttf size:%d\n", font->size);
+    fclose(fd);
+	return font->memory == NULL ? -1 : 0;
+}
+
+static void
+unmap_file(SFT_Font *font)
+{
+	assert(font->memory != NULL);
+	free((void *) font->memory);
+}
+
+#elif defined(_WIN32)
+// #if 0
 
 static int
 map_file(SFT_Font *font, const char *filename)
@@ -528,22 +592,31 @@ init_font(SFT_Font *font)
 {
 	uint_fast32_t scalerType, head, hhea;
 
-	if (!is_safe_offset(font, 0, 12))
+        printf("init_font\n");
+	if (!is_safe_offset(font, 0, 12)) {
+        printf("is not safe offset\n");
 		return -1;
+	}
 	/* Check for a compatible scalerType (magic number). */
 	scalerType = getu32(font, 0);
-	if (scalerType != FILE_MAGIC_ONE && scalerType != FILE_MAGIC_TWO)
+	if (scalerType != FILE_MAGIC_ONE && scalerType != FILE_MAGIC_TWO) {
+        printf("scalerType err\n");
 		return -1;
+	}
 
-	if (gettable(font, "head", &head) < 0)
+	if (gettable(font, "head", &head) < 0) {
+        printf("head err\n");
 		return -1;
+	}
 	if (!is_safe_offset(font, head, 54))
 		return -1;
 	font->unitsPerEm = getu16(font, head + 18);
 	font->locaFormat = geti16(font, head + 50);
 	
-	if (gettable(font, "hhea", &hhea) < 0)
+	if (gettable(font, "hhea", &hhea) < 0) {
+        printf("hhea err\n");
 		return -1;
+	}
 	if (!is_safe_offset(font, hhea, 36))
 		return -1;
 	font->numLongHmtx = getu16(font, hhea + 34);
@@ -572,6 +645,17 @@ transform_points(unsigned int numPts, Point *points, double trf[6])
 			pt.x * trf[0] + pt.y * trf[2] + trf[4],
 			pt.x * trf[1] + pt.y * trf[3] + trf[5]
 		};
+        // printf("points[%d]: %f, %f\n", i, points[i].x, points[i].y);
+	}
+}
+
+static double rdf_nextafter(double input, double dir)
+{
+	printf("rdf_nextafter\n");
+	if (dir > 0.0) {
+		return (input + 0.00000000000000020000);
+	} else {
+		return (input - 0.00000000000000011000);
 	}
 }
 
@@ -588,13 +672,15 @@ clip_points(unsigned int numPts, Point *points, int width, int height)
 			points[i].x = 0.0;
 		}
 		if (pt.x >= width) {
-			points[i].x = nextafter(width, 0.0);
+			// points[i].x = nextafter(width, 0.0);
+			points[i].x = rdf_nextafter(width, 0.0);
 		}
 		if (pt.y < 0.0) {
 			points[i].y = 0.0;
 		}
 		if (pt.y >= height) {
-			points[i].y = nextafter(height, 0.0);
+			// points[i].y = nextafter(height, 0.0);
+			points[i].y = rdf_nextafter(height, 0.0);
 		}
 	}
 }
@@ -678,8 +764,14 @@ grow_lines(Outline *outl)
 static inline int
 is_safe_offset(SFT_Font *font, uint_fast32_t offset, uint_fast32_t margin)
 {
-	if (offset > font->size) return 0;
-	if (font->size - offset < margin) return 0;
+	if (offset > font->size) {
+		printf("offset:%d, font->size:%d\n", offset, font->size);
+		return 0;
+	}
+	if (font->size - offset < margin) {
+		printf("offset:%d, margin:%d\n", font->size - offset, margin);
+		return 0;
+	}
 	return 1;
 }
 
@@ -764,6 +856,7 @@ gettable(SFT_Font *font, char tag[4], uint_fast32_t *offset)
 	numTables = getu16(font, 4);
 	if (!is_safe_offset(font, 12, (uint_fast32_t) numTables * 16))
 		return -1;
+	// printf("numTables:%d\n", numTables);
 	if (!(match = bsearch(tag, font->memory + 12, numTables, 16, cmpu32)))
 		return -1;
 	*offset = getu32(font, (uint_fast32_t) ((uint8_t *) match - font->memory + 8));
@@ -773,11 +866,13 @@ gettable(SFT_Font *font, char tag[4], uint_fast32_t *offset)
 static int
 cmap_fmt4(SFT_Font *font, uint_fast32_t table, SFT_UChar charCode, SFT_Glyph *glyph)
 {
+	// printf("cmap_fmt4\n");
 	const uint8_t *segPtr;
 	uint_fast32_t segIdxX2;
 	uint_fast32_t endCodes, startCodes, idDeltas, idRangeOffsets, idOffset;
 	uint_fast16_t segCountX2, idRangeOffset, startCode, shortCode, idDelta, id;
 	uint8_t key[2] = { (uint8_t) (charCode >> 8), (uint8_t) charCode };
+	printf("cmap_fmt4\n");
 	/* cmap format 4 only supports the Unicode BMP. */
 	if (charCode > 0xFFFF) {
 		*glyph = 0;
@@ -822,7 +917,9 @@ cmap_fmt4(SFT_Font *font, uint_fast32_t table, SFT_UChar charCode, SFT_Glyph *gl
 static int
 cmap_fmt6(SFT_Font *font, uint_fast32_t table, SFT_UChar charCode, SFT_Glyph *glyph)
 {
+	// printf("cmap_fmt6\n");
 	unsigned int firstCode, entryCount;
+	printf("cmap_fmt6\n");
 	/* cmap format 6 only supports the Unicode BMP. */
 	if (charCode > 0xFFFF) {
 		*glyph = 0;
@@ -846,6 +943,7 @@ cmap_fmt6(SFT_Font *font, uint_fast32_t table, SFT_UChar charCode, SFT_Glyph *gl
 static int
 cmap_fmt12_13(SFT_Font *font, uint_fast32_t table, SFT_UChar charCode, SFT_Glyph *glyph, int which)
 {
+	// printf("cmap_fmt12_13\n");
 	uint32_t len, numEntries;
 	uint_fast32_t i;
 
@@ -865,6 +963,7 @@ cmap_fmt12_13(SFT_Font *font, uint_fast32_t table, SFT_UChar charCode, SFT_Glyph
 		return -1;
 
 	numEntries = getu32(font, table + 12);
+	printf("cmap_fmt12_13:%d\n", numEntries);
 
 	for (i = 0; i < numEntries; ++i) {
 		uint32_t firstCode, lastCode, glyphOffset;
@@ -923,6 +1022,7 @@ glyph_id(SFT_Font *font, SFT_UChar charCode, SFT_Glyph *glyph)
 		}
 	}
 
+	printf("numEntries:%d\n", numEntries);
 	/* If no 'full repertoire' cmap was found, try looking for a BMP map. */
 	for (idx = 0; idx < numEntries; ++idx) {
 		entry = cmap + 4 + idx * 8;
@@ -991,15 +1091,26 @@ glyph_bbox(const SFT *sft, uint_fast32_t outline, int box[4])
 	box[1] = geti16(sft->font, outline + 4);
 	box[2] = geti16(sft->font, outline + 6);
 	box[3] = geti16(sft->font, outline + 8);
+    // printf("box: %d, %d, %d, %d\n", box[0], box[1], box[2], box[3]);
 	if (box[2] <= box[0] || box[3] <= box[1])
 		return -1;
 	/* Transform the bounding box into SFT coordinate space. */
 	xScale = sft->xScale / sft->font->unitsPerEm;
 	yScale = sft->yScale / sft->font->unitsPerEm;
+#if 0
+	box[0] = (int) fast_floor(box[0] * xScale + sft->xOffset);
+	box[1] = (int) fast_floor(box[1] * yScale + sft->yOffset);
+	box[2] = (int) fast_ceil (box[2] * xScale + sft->xOffset);
+	box[3] = (int) fast_ceil (box[3] * yScale + sft->yOffset);
+#else
 	box[0] = (int) floor(box[0] * xScale + sft->xOffset);
 	box[1] = (int) floor(box[1] * yScale + sft->yOffset);
 	box[2] = (int) ceil (box[2] * xScale + sft->xOffset);
 	box[3] = (int) ceil (box[3] * yScale + sft->yOffset);
+#endif
+    // printf("sft->xScale: %f, %f, %d, %f, %f, %f, %f\n", sft->xScale, sft->yScale, sft->font->unitsPerEm, xScale, yScale, sft->xOffset, sft->yOffset);
+    // printf("box: %d, %d, %d, %d\n", (box[0] * xScale + sft->xOffset), (box[1] * yScale + sft->yOffset), (box[2] * xScale + sft->xOffset), (box[3] * yScale + sft->yOffset));
+    // printf("box: %d, %d, %d, %d\n", box[0], box[1], box[2], box[3]);
 	return 0;
 }
 
@@ -1102,6 +1213,7 @@ simple_points(SFT_Font *font, uint_fast32_t offset, uint_fast16_t numPts, uint8_
 			offset += 2;
 		}
 		points[i].y = (double) accum;
+        // printf("points[%d]: %f, %f\n", i, points[i].x, points[i].y);
 	}
 
 	return 0;
@@ -1190,6 +1302,7 @@ decode_contour(uint8_t *flags, uint_fast16_t basePoint, uint_fast16_t count, Out
 static int
 simple_outline(SFT_Font *font, uint_fast32_t offset, unsigned int numContours, Outline *outl)
 {
+	// printf("simple_outline\n");
 	uint_fast16_t *endPts = NULL;
 	uint8_t *flags = NULL;
 	uint_fast16_t numPts;
@@ -1205,6 +1318,7 @@ simple_outline(SFT_Font *font, uint_fast32_t offset, unsigned int numContours, O
 	if (numPts >= UINT16_MAX)
 		goto failure;
 	numPts++;
+	// printf("numPts:%d\n", numPts);
 	if (outl->numPoints > UINT16_MAX - numPts)
 		goto failure;
 
@@ -1239,6 +1353,7 @@ simple_outline(SFT_Font *font, uint_fast32_t offset, unsigned int numContours, O
 		goto failure;
 	outl->numPoints = (uint_least16_t) (outl->numPoints + numPts);
 
+	// printf("numContours:%d\n", numContours);
 	uint_fast16_t beg = 0;
 	for (i = 0; i < numContours; ++i) {
 		uint_fast16_t count = endPts[i] - beg + 1;
@@ -1259,6 +1374,7 @@ failure:
 static int
 compound_outline(SFT_Font *font, uint_fast32_t offset, int recDepth, Outline *outl)
 {
+	// printf("compound_outline\n");
 	double local[6];
 	uint_fast32_t outline;
 	unsigned int flags, glyph, basePoint;
@@ -1525,11 +1641,27 @@ post_process(Raster buf, uint8_t *image)
 	for (i = 0; i < num; ++i) {
 		cell     = buf.cells[i];
 		value    = fabs(accum + cell.area);
+		// value    = fabs(accum);
 		value    = MIN(value, 1.0);
 		value    = value * 255.0 + 0.5;
 		image[i] = (uint8_t) value;
 		accum   += cell.cover;
+		// printf("%f,", cell.cover);
 	}
+	
+	// int j;
+	// for (i = 0; i < buf.height; ++i) {
+	// 	accum = 0.0;
+	// 	for (j = 0; j < buf.width; ++j) {
+	// 		cell     = buf.cells[i*buf.width + j];
+	// 		value    = fabs(accum + cell.area);
+	// 		value    = MIN(value, 1.0);
+	// 		value    = value * 255.0 + 0.5;
+	// 		image[i*buf.width + j] = (uint8_t) value;
+	// 		accum   += cell.cover;
+	// 		// printf("%f,", cell.cover);
+	// 	}
+	// }
 }
 
 static int
@@ -1542,6 +1674,8 @@ render_outline(Outline *outl, double transform[6], SFT_Image image)
 	numPixels = (unsigned int) image.width * (unsigned int) image.height;
 
 	STACK_ALLOC(cells, Cell, 128 * 128, numPixels);
+	// STACK_ALLOC(cells, Cell, 10, numPixels);
+	printf("numPixels:%d\n", numPixels);
 	if (!cells) {
 		return -1;
 	}
@@ -1554,10 +1688,12 @@ render_outline(Outline *outl, double transform[6], SFT_Image image)
 
 	clip_points(outl->numPoints, outl->points, image.width, image.height);
 
+	// printf("tesselate_curves: NumPoints:%d\n", outl->numPoints);
 	if (tesselate_curves(outl) < 0) {
 		STACK_FREE(cells);
 		return -1;
 	}
+	// printf("NumPoints after:%d\n", outl->numPoints);
 
 	draw_lines(outl, buf);
 
